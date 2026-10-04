@@ -1,0 +1,112 @@
+# Bumps Formula/kubectl-cnms.rb when a new cnms release ships (FR28).
+#
+# Triggers:
+#   - workflow_dispatch with input `version` (a release tag, e.g. v0.4.2)
+#   - repository_dispatch of type plugin-release with client_payload.version
+#     set to the tag — send it from the cnms release pipeline or by hand:
+#       gh api repos/bare-metal-cloud/homebrew-tap/dispatches \
+#         -f event_type=plugin-release \
+#         -F 'client_payload[version]=v0.4.2'
+#
+# Digest provenance (NFR11): scripts/gen-formula.py regenerates the formula
+# from the release's own SHA256SUMS — the same digests the deploykit
+# catalogue pins. If the downloaded tarballs do not match SHA256SUMS the job
+# fails before the formula is touched.
+#
+# The cnms repo is private: downloading its release assets needs a
+# fine-grained PAT stored as the CNMS_RELEASE_TOKEN secret here
+# (Contents: Read on bare-metal-cloud/cnms). Pushing the bump uses the
+# default GITHUB_TOKEN (contents:write below) — no extra secret needed.
+
+name: autoupdate
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "cnms release tag to publish (e.g. v0.4.2)"
+        required: true
+        type: string
+  repository_dispatch:
+    types: [plugin-release]
+
+permissions:
+  contents: write
+
+jobs:
+  bump-formula:
+    name: Regenerate formula from release SHA256SUMS
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Gate on CNMS_RELEASE_TOKEN
+        env:
+          CNMS_RELEASE_TOKEN: ${{ secrets.CNMS_RELEASE_TOKEN }}
+        run: |
+          if [ -z "${CNMS_RELEASE_TOKEN}" ]; then
+            echo "::error::CNMS_RELEASE_TOKEN is not set — cannot download private release assets."
+            cat <<'EOF'
+          Setup: create a fine-grained PAT on bare-metal-cloud with
+            - Contents: Read on bare-metal-cloud/cnms (release asset download)
+          and add it as the CNMS_RELEASE_TOKEN repository secret of THIS repo
+          (bare-metal-cloud/homebrew-tap). Pushing the bump uses the default
+          GITHUB_TOKEN and needs no extra secret.
+          EOF
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          DISPATCH_VERSION: ${{ github.event.client_payload.version }}
+        run: |
+          set -euo pipefail
+          tag="${INPUT_VERSION:-${DISPATCH_VERSION:-}}"
+          if [ -z "${tag}" ]; then
+            echo "::error::no version given: pass the workflow_dispatch input 'version' or repository_dispatch client_payload.version"
+            exit 1
+          fi
+          case "${tag}" in
+            v[0-9]*) ;;
+            *) echo "::error::version must be a release tag like v0.4.2, got '${tag}'"; exit 1;;
+          esac
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "ver=${tag#v}" >> "${GITHUB_OUTPUT}"
+
+      - name: Download release assets + SHA256SUMS
+        env:
+          GH_TOKEN: ${{ secrets.CNMS_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "${{ steps.ver.outputs.tag }}" \
+            -R bare-metal-cloud/cnms \
+            -p 'kubectl-cnms_*' -p 'SHA256SUMS' \
+            --dir dist --clobber
+          cd dist && sha256sum -c SHA256SUMS
+
+      - name: Regenerate formula
+        run: |
+          set -euo pipefail
+          python3 scripts/gen-formula.py \
+            --tag "${{ steps.ver.outputs.tag }}" \
+            --sums dist/SHA256SUMS
+
+      - name: Ruby syntax check
+        run: ruby -c Formula/kubectl-cnms.rb
+
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          git config user.name "cnms-release-bot"
+          git config user.email "bot@bare-metal-cloud.dev"
+          git add Formula/kubectl-cnms.rb
+          if git diff --cached --quiet; then
+            echo "formula already at ${{ steps.ver.outputs.tag }} — nothing to commit"
+            exit 0
+          fi
+          git commit -m "brew formula: ${{ steps.ver.outputs.tag }}"
+          git push
