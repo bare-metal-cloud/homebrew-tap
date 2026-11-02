@@ -26,27 +26,30 @@ class KubectlCnms < Formula
   homepage "https://github.com/@REPO@"
   version "@VER@"
 
-  # The cnms repo is private today: the release URLs below only resolve with
-  # authentication until the assets are mirrored to the public edge
-  # (get.low-cost.cloud/dl/cnms/...). The sha256 pins are already final —
-  # when the mirror lands, only the url host/path changes.
+  # Download transport: the cnms GitHub repo is private, so its release URLs
+  # 404 anonymously. The formula downloads from the public edge instead
+  # (get.low-cost.cloud/dl/cnms/...) — the deploykit mirror serves the
+  # identical tarballs, so the sha256 pins below are the same
+  # release-SHA256SUMS digests either way (issue #13). A version is
+  # fetchable here only once the deploykit catalogue pins it; the digest
+  # check fails loudly if the edge ever serves different bytes.
   on_macos do
     if Hardware::CPU.intel?
-      url "https://github.com/@REPO@/releases/download/@TAG@/kubectl-cnms_@TAG@_darwin_amd64.tar.gz"
+      url "https://get.low-cost.cloud/dl/cnms/@TAG@/darwin/amd64.tar.gz"
       sha256 "@DARWIN_AMD64@"
     end
     if Hardware::CPU.arm?
-      url "https://github.com/@REPO@/releases/download/@TAG@/kubectl-cnms_@TAG@_darwin_arm64.tar.gz"
+      url "https://get.low-cost.cloud/dl/cnms/@TAG@/darwin/arm64.tar.gz"
       sha256 "@DARWIN_ARM64@"
     end
   end
   on_linux do
     if Hardware::CPU.intel?
-      url "https://github.com/@REPO@/releases/download/@TAG@/kubectl-cnms_@TAG@_linux_amd64.tar.gz"
+      url "https://get.low-cost.cloud/dl/cnms/@TAG@/linux/amd64.tar.gz"
       sha256 "@LINUX_AMD64@"
     end
     if Hardware::CPU.arm?
-      url "https://github.com/@REPO@/releases/download/@TAG@/kubectl-cnms_@TAG@_linux_arm64.tar.gz"
+      url "https://get.low-cost.cloud/dl/cnms/@TAG@/linux/arm64.tar.gz"
       sha256 "@LINUX_ARM64@"
     end
   end
