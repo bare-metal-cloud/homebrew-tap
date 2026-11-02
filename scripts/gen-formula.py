@@ -93,8 +93,15 @@ def main() -> None:
             continue
         stem = name[len("kubectl-cnms_") : -len(".tar.gz")]
         parts = stem.rsplit("_", 2)
-        if len(parts) == 3 and parts[0] == args.tag:
-            plat[(parts[1], parts[2])] = h
+        # Releases carry either v-prefixed asset names (kubectl-cnms_v0.4.2_…,
+        # the early releases) or stripped ones (kubectl-cnms_0.6.0_…, from
+        # v0.6.0 on) — accept both so a bump never fails its platform lookup
+        # on naming alone. The edge URL always uses the v-form tag.
+        if len(parts) == 3 and parts[0] in (args.tag, args.tag[1:]):
+            pair = (parts[1], parts[2])
+            if pair in plat and plat[pair] != h:
+                sys.exit(f"conflicting digests for {pair} in {args.sums}")
+            plat[pair] = h
 
     missing = [p for p in WANTED if p not in plat]
     if missing:
